@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compartir Ubicacion</title>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+
+        .header {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #777;
+            font-size: 20px;
+            z-index: 1000;
+        }
+    </style>
+
+    <script src="https://maps.googleapis.com/maps/api/js?key=google_key"></script>
+</head>
+<body>
+    <div class="header">
+        <h1 id="username">Ubicacion del usuario EJEMPLO</h1>
+    </div>
+    <div id="map"></div>
+    <div class="loading" id="loading">Cargando localizacion...</div>
+
+    <!-- Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+        const uberStyle = [
+            {
+                "featureType": "all",
+                "elementType": "labels.text.fill",
+                "stylers": [
+                    { "color": "#878787" }
+                ]
+            },
+            {
+                "featureType": "all",
+                "elementType": "labels.text.stroke",
+                "stylers": [
+                    { "color": "#ffffff" },
+                    { "visibility": "off" }
+                ]
+            },
+            {
+                "featureType": "road",
+                "elementType": "geometry",
+                "stylers": [
+                    { "color": "#e9e9e9" }
+                ]
+            },
+            {
+                "featureType": "road",
+                "elementType": "geometry.stroke",
+                "stylers": [
+                    { "color": "#ffffff" },
+                    { "visibility": "off" }
+                ]
+            },
+            {
+                "featureType": "road.highway",
+                "elementType": "geometry",
+                "stylers": [
+                    { "color": "#ffffff" }
+                ]
+            },
+            {
+                "featureType": "road.highway",
+                "elementType": "geometry.stroke",
+                "stylers": [
+                    { "color": "#c5c5c5" }
+                ]
+            },
+            {
+                "featureType": "landscape",
+                "elementType": "geometry",
+                "stylers": [
+                    { "color": "#f5f5f2" }
+                ]
+            },
+            {
+                "featureType": "water",
+                "stylers": [
+                    { "color": "#c9c9c9" }
+                ]
+            },
+            {
+                "featureType": "poi",
+                "elementType": "labels",
+                "stylers": [
+                    { "visibility": "off" }
+                ]
+            },
+            {
+                "featureType": "transit",
+                "stylers": [
+                    { "visibility": "off" }
+                ]
+            },
+            {
+                "featureType": "administrative",
+                "elementType": "geometry",
+                "stylers": [
+                    { "visibility": "off" }
+                ]
+            }
+        ];
+
+        let map, marker;
+
+        function initMap(lat = 0, lng = 0) {
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 2,
+                center: { lat, lng },
+                styles: uberStyle,
+                disableDefaultUI: true
+            });
+        }
+
+        function updateMap(lat, lng) {
+            if (marker) marker.setMap(null);
+            marker = new google.maps.Marker({
+                position: { lat, lng },
+                map: map
+            });
+            map.setCenter({ lat, lng });
+            map.setZoom(15);
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('user_id');
+        const token = urlParams.get('token');
+
+        async function authenticateAndTrack() {
+            try {
+                const response = await fetch('/authenticate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, token })
+                });
+
+                if (!response.ok) throw new Error('Authentication failed');
+
+                const { isAuthenticated, userName } = await response.json();
+                if (!isAuthenticated) {
+                    document.querySelector('.loading').textContent = "Access Denied: Invalid or expired token";
+                    return;
+                }
+
+                document.getElementById('username').textContent = `Ubicacion de ${userName}`;
+                document.getElementById('loading').style.display = 'none';
+
+                initMap();
+
+                const socket = io();
+
+                socket.emit('startTracking', { userId });
+                socket.on('locationUpdate', (data) => {
+                    if (data.userId === userId) {
+                        updateMap(data.latitude, data.longitude);
+                    }
+                });
+            } catch (error) {
+                document.querySelector('.loading').textContent = "Error: " + error.message;
+            }
+        }
+
+        authenticateAndTrack();
+    </script>
+</body>
+</html>
